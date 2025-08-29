@@ -1,0 +1,44 @@
+# ===== STM32 / GCC build artifacts =====
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+*.d
+
+# ===== IDE specific =====
+*.swp
+*.swo
+*.launch
+*.settings/
+*.vscode/
+*.idea/
+
+# ===== Build and output folders =====
+build/
+out/
+dist/
+Debug/
+Release/
+
+# ===== ChipWhisperer traces (можуть бути дуже великі) =====
+*.zip
+*.tar.gz
+*.npz
+*.npy
+*.csv
+*.h5
+
+# ===== STM32 HAL or external libs =====
+hal/
+
+# ===== OS / system files =====
+.DS_Store
+Thumbs.db
+
+# ===== R / Python caches =====
+__pycache__/
+*.Rhistory
+*.RData
+*.Rproj.user/
