@@ -123,15 +123,12 @@ run_synth_tvla_from_real <- function(
     inputs_V1 = inputs_V1
   ))
 }
-# 1) шляхи до РЕАЛЬНИХ трас (один сет, наприклад unprotected)
 path_unprotected <- "/Users/andrew/Desktop/thesis/only-traces/capture_traces/unprotected"
 
-# 2) задай вікно (якщо треба) і POI/non-POI для басейнів блоків
-qs <- 1; qe <- 24430  # або твоє реальне вікно
+qs <- 1; qe <- 24430  
 poi    <- 534:24430
 nonpoi <- 1:533
 
-# 3) варіант A: fixed з non-POI, random з POI∪non-POI (більш «колюча» форма у random)
 resA <- run_synth_tvla_from_real(
   traces_path   = path_unprotected,
   n_fixed       = 8600,
@@ -140,12 +137,11 @@ resA <- run_synth_tvla_from_real(
   B = 64,
   win_fixed  = nonpoi,
   win_random = 1:24430,
-  random_transform = FALSE,                    # поки без дод. нелінійності
+  random_transform = FALSE,                    
   out_pdf = "tvla_ksla_fixed_random_from_real_POI_mixed.pdf"
 )
 
-# 4) варіант B: як вище + легка нелінійна «shape tweak» у random,
-#    щоб mean залишився ≈0, але хвости/форма трохи змінились
+
 resB <- run_synth_tvla_from_real(
   traces_path   = path_unprotected,
   n_fixed       = 8600,
@@ -154,6 +150,6 @@ resB <- run_synth_tvla_from_real(
   B = 64,
   win_fixed  = nonpoi,
   win_random = 1:24430,
-  random_transform = TRUE,                     # вмикаємо м’яку зміну форми
+  random_transform = TRUE,                    
   out_pdf = "tvla_ksla_fixed_random_from_real_POI_mixed_tweak.pdf"
 )
