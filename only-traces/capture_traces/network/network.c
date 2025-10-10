@@ -281,11 +281,47 @@ network forward(network net){
     return net;
 }
 
+
+static uint32_t jitter_state = 0xA5A5A5A5u; 
+
+void jitter_seed(uint32_t seed) {
+    if (seed != 0) {
+        jitter_state = seed;
+    } else {
+        jitter_state = 0xA5A5A5A5u;
+    }
+}
+
+
+static inline uint32_t jitter_next_u32(void) {
+    uint32_t x = jitter_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    jitter_state = x;
+    return x;
+}
+
+
+static inline void delay_jitter_cycles(int J) {
+    int r = (int)(jitter_next_u32() & (uint32_t)J);
+    for (volatile int d = 0; d < r; d++) {
+        __asm__ __volatile__("nop");
+    }
+}
+
+
 network forward_shuffled(network net) {
+
+    const int J_layer = 7;
+    const int J_mul   = 15; 
+
     volatile int curr_layer_idx, curr_neuron_idx, prev_layer_neuron_idx;
     // for each layer
     for (curr_layer_idx=1; curr_layer_idx < net.num_layers; curr_layer_idx++){
         
+        delay_jitter_cycles(J_layer);
+
         int prev_layer_idx = curr_layer_idx - 1;
         // for each neuron in this layer
         for (curr_neuron_idx=0; curr_neuron_idx < net.layers[ curr_layer_idx ].num_neurons; curr_neuron_idx++){   
@@ -293,6 +329,9 @@ network forward_shuffled(network net) {
 
             // for all neurons on the previous layer
             for (prev_layer_neuron_idx = 0; prev_layer_neuron_idx < net.layers[ prev_layer_idx ].num_neurons; prev_layer_neuron_idx++){
+
+                delay_jitter_cycles(J_mul);
+
                 int mul_index = net.layers[ curr_layer_idx ].neurons[ curr_neuron_idx ].mul_indices[ prev_layer_neuron_idx ]; // CHANGE from forward - added this line
 
                 net.layers[ curr_layer_idx ].neurons[ curr_neuron_idx ].z =
@@ -322,6 +361,209 @@ network forward_shuffled(network net) {
             else{
                 //for (int i = 0; i < 15; i++) a = a * a;
                 net.layers[curr_layer_idx].neurons[ curr_neuron_idx ].a = 1/(1+exp(-net.layers[curr_layer_idx].neurons[ curr_neuron_idx ].z));
+            }
+        }
+    }
+    return net;
+}
+
+/* =========================
+   Masked forward variants (GPT TRASH BELOW DONT LOOK !!! WILL BE DELETED LATER!!! NOW I AM NOT USING IT)
+   ========================= */
+
+#include <stdlib.h>  // rand()
+#include <math.h>    // expf
+
+/* допоміжна функція для випадкових масок */
+static inline float nn_rand_uniformf(float lo, float hi) {
+    return lo + (hi - lo) * (rand() / (float)RAND_MAX);
+}
+
+/* -------- ВАРІАНТ 1: маска на нейрон (дешево) -------- */
+network forward_masked_neuron(network net, float mask_scale) {
+    volatile int curr_layer_idx, curr_neuron_idx, prev_layer_neuron_idx;
+
+    for (curr_layer_idx = 1; curr_layer_idx < net.num_layers; curr_layer_idx++) {
+        int prev_layer_idx = curr_layer_idx - 1;
+
+        for (curr_neuron_idx = 0; curr_neuron_idx < net.layers[curr_layer_idx].num_neurons; curr_neuron_idx++) {
+
+            /* одна маска R на нейрон — додаємо до bias і знімаємо після суми */
+            float R = nn_rand_uniformf(-mask_scale, mask_scale);
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].z =
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].bias + R;
+
+            for (prev_layer_neuron_idx = 0;
+                 prev_layer_neuron_idx < net.layers[prev_layer_idx].num_neurons;
+                 prev_layer_neuron_idx++) {
+
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].z +=
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx]
+                        .weights[prev_layer_neuron_idx] *
+                    net.layers[prev_layer_idx].neurons[prev_layer_neuron_idx].a;
+                /* <-- чутливе множення відбувається тут */
+            }
+
+            /* знімаємо маску — функціонально вихід такий самий як у forward() */
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].z -= R;
+
+            /* активації без змін */
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+
+            if (curr_layer_idx < net.num_layers - 1) {
+                if (net.layers[curr_layer_idx].neurons[curr_neuron_idx].z < 0.0f) {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a = 0.0f;
+                } else {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                        net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+                }
+            } else {
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                    1.0f / (1.0f + expf(-net.layers[curr_layer_idx].neurons[curr_neuron_idx].z));
+            }
+        }
+    }
+    return net;
+}
+
+/* -------- ВАРІАНТ 2: маска на КОЖНЕ множення (сильніше) -------- */
+network forward_masked_mul(network net, float mask_scale) {
+    volatile int curr_layer_idx, curr_neuron_idx, prev_layer_neuron_idx;
+
+    for (curr_layer_idx = 1; curr_layer_idx < net.num_layers; curr_layer_idx++) {
+        int prev_layer_idx = curr_layer_idx - 1;
+
+        for (curr_neuron_idx = 0; curr_neuron_idx < net.layers[curr_layer_idx].num_neurons; curr_neuron_idx++) {
+
+            float acc1 = net.layers[curr_layer_idx].neurons[curr_neuron_idx].bias; /* сума w*(a+r) */
+            float acc2 = 0.0f;                                                    /* сума w*r     */
+
+            for (prev_layer_neuron_idx = 0;
+                 prev_layer_neuron_idx < net.layers[prev_layer_idx].num_neurons;
+                 prev_layer_neuron_idx++) {
+
+                float w = net.layers[curr_layer_idx].neurons[curr_neuron_idx]
+                              .weights[prev_layer_neuron_idx];
+                float a = net.layers[prev_layer_idx].neurons[prev_layer_neuron_idx].a;
+                float r = nn_rand_uniformf(-mask_scale, mask_scale);
+
+                acc1 += w * (a + r);  /* множення на замаскований вхід */
+                acc2 += w * r;        /* компенсаційний доданок        */
+            }
+
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].z = acc1 - acc2;
+
+            /* активації без змін */
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+
+            if (curr_layer_idx < net.num_layers - 1) {
+                if (net.layers[curr_layer_idx].neurons[curr_neuron_idx].z < 0.0f) {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a = 0.0f;
+                } else {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                        net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+                }
+            } else {
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                    1.0f / (1.0f + expf(-net.layers[curr_layer_idx].neurons[curr_neuron_idx].z));
+            }
+        }
+    }
+    return net;
+}
+
+/* -------- ВАРІАНТ 1 + SHUFFLING -------- */
+network forward_shuffled_masked_neuron(network net, float mask_scale) {
+    volatile int curr_layer_idx, curr_neuron_idx, prev_layer_neuron_idx;
+
+    for (curr_layer_idx = 1; curr_layer_idx < net.num_layers; curr_layer_idx++) {
+        int prev_layer_idx = curr_layer_idx - 1;
+
+        for (curr_neuron_idx = 0; curr_neuron_idx < net.layers[curr_layer_idx].num_neurons; curr_neuron_idx++) {
+
+            float R = nn_rand_uniformf(-mask_scale, mask_scale);
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].z =
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].bias + R;
+
+            for (prev_layer_neuron_idx = 0;
+                 prev_layer_neuron_idx < net.layers[prev_layer_idx].num_neurons;
+                 prev_layer_neuron_idx++) {
+
+                int mul_index = net.layers[curr_layer_idx].neurons[curr_neuron_idx]
+                                    .mul_indices[prev_layer_neuron_idx];
+
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].z +=
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].weights[mul_index] *
+                    net.layers[prev_layer_idx].neurons[mul_index].a;
+            }
+
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].z -= R;
+
+            /* активації без змін */
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+
+            if (curr_layer_idx < net.num_layers - 1) {
+                if (net.layers[curr_layer_idx].neurons[curr_neuron_idx].z < 0.0f) {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a = 0.0f;
+                } else {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                        net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+                }
+            } else {
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                    1.0f / (1.0f + expf(-net.layers[curr_layer_idx].neurons[curr_neuron_idx].z));
+            }
+        }
+    }
+    return net;
+}
+
+/* -------- ВАРІАНТ 2 + SHUFFLING -------- */
+network forward_shuffled_masked_mul(network net, float mask_scale) {
+    volatile int curr_layer_idx, curr_neuron_idx, prev_layer_neuron_idx;
+
+    for (curr_layer_idx = 1; curr_layer_idx < net.num_layers; curr_layer_idx++) {
+        int prev_layer_idx = curr_layer_idx - 1;
+
+        for (curr_neuron_idx = 0; curr_neuron_idx < net.layers[curr_layer_idx].num_neurons; curr_neuron_idx++) {
+
+            float acc1 = net.layers[curr_layer_idx].neurons[curr_neuron_idx].bias;
+            float acc2 = 0.0f;
+
+            for (prev_layer_neuron_idx = 0;
+                 prev_layer_neuron_idx < net.layers[prev_layer_idx].num_neurons;
+                 prev_layer_neuron_idx++) {
+
+                int mul_index = net.layers[curr_layer_idx].neurons[curr_neuron_idx]
+                                    .mul_indices[prev_layer_neuron_idx];
+
+                float w = net.layers[curr_layer_idx].neurons[curr_neuron_idx].weights[mul_index];
+                float a = net.layers[prev_layer_idx].neurons[mul_index].a;
+                float r = nn_rand_uniformf(-mask_scale, mask_scale);
+
+                acc1 += w * (a + r);
+                acc2 += w * r;
+            }
+
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].z = acc1 - acc2;
+
+            /* активації без змін */
+            net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+
+            if (curr_layer_idx < net.num_layers - 1) {
+                if (net.layers[curr_layer_idx].neurons[curr_neuron_idx].z < 0.0f) {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a = 0.0f;
+                } else {
+                    net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                        net.layers[curr_layer_idx].neurons[curr_neuron_idx].z;
+                }
+            } else {
+                net.layers[curr_layer_idx].neurons[curr_neuron_idx].a =
+                    1.0f / (1.0f + expf(-net.layers[curr_layer_idx].neurons[curr_neuron_idx].z));
             }
         }
     }

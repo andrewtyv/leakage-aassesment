@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <time.h>
 
+void jitter_seed(uint32_t seed);
+
 typedef struct neuron_struct {
     int num_weights;
     float *weights;
@@ -64,3 +66,7 @@ unsigned int modulo_masked(int i, unsigned int s1[], unsigned int s2[], unsigned
 
 
 
+network forward_masked_neuron(network net, float mask_scale);
+network forward_masked_mul(network net, float mask_scale);
+network forward_shuffled_masked_neuron(network net, float mask_scale);
+network forward_shuffled_masked_mul(network net, float mask_scale);

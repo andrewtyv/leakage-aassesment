@@ -8,6 +8,7 @@
 /*
  * When debugging locally compile using `gcc -o debug-app.exe main.c network.c debug-source.c -DDEBUGGING=1`
  */
+#define MASK_SCALE 0.3
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +19,8 @@
 #include "hal/stm32f3/stm32f3_hal.h"
 
 #define SS_VER SS_VER_2_1
+static uint32_t trace_counter = 0;
+
 
 #include "simpleserial/simpleserial.h"
 
@@ -58,39 +61,17 @@ uint8_t handle(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf)
   int num_layers = NET_NUM_LAYERS;
   int *num_neurons_arr = NET_NUM_NEURONS;
   
-  // Initialize the network with the pre-defined structure
   network net = init_network(num_layers, num_neurons_arr, net_config_layer_weights);
 
-  // USED WHEN USING FIXED RANDOMLY GENERATED INPUTS INSTEAD OF 0.5 or 0.0
-  // float new_inputs[7] = {
-  //   -0.039964473300472925,
-  //   0.3367311187095563,
-  //   1.034674935250851746,
-  //   0.7525740869461268,
-  //   -1.5751881331414292,
-  //   -0.6688709437380642,
-  //   -0.9791366791093283
-  // };
-  // for (int i=0; i < net.layers[0].num_neurons; i++){
-  //   net.layers[0].neurons[i].a = new_inputs[i];
-  // }
-
-  //Change the input of the first neuron in the first layer to the provided number
-  //convert to float from a 4-byte buffer
   float input_value;
   memcpy(&input_value, buf, sizeof(float));
   //net.layers[0].neurons[0].a = input_value;
   ///net.layers[0].neurons[1].a = input_value;
   int n0 = net.layers[0].num_neurons;
   for (int i = 0; i < n0; i++) {
-      net.layers[0].neurons[i].a = (i == 1 ? input_value : 0.5f);
+      net.layers[0].neurons[i].a = (i == (0) ? input_value : 0.5f);
   }
   
-  //uint8_t rnd = buf[0];
-  //float in_val = (float)rnd;
-  //for (int i = 0; i < net.layers[0].num_neurons; i++) {
-  //      net.layers[0].neurons[i].a = (i == 0 ? in_val : 0.5f);
-  //} 
 
 
   #ifdef DEBUGGING
@@ -103,10 +84,12 @@ uint8_t handle(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf)
   #endif
   #endif
   //scmd = 0; 
-  if (scmd) {
+  
+
+  if (scmd == 1 || scmd == 4 || scmd == 5) {
     for (int i = 1; i < net.num_layers; i++) {
      
-     net = shuffle_mul_indices_masked(net, i);
+     net = shuffle_mul_indices(net, i);
      //net = shuffle_mul_indices_deranged(net, i);
      //net = shuffle_mul_indices(net, i);
     }
@@ -114,6 +97,8 @@ uint8_t handle(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf)
     //net = shuffle_mul_indices_masked(net, 1);
     //net = shuffle_mul_indices(net, 1);
   }
+  jitter_seed(0x9E3779B9u ^ trace_counter++);
+
 
   #ifdef DEBUGGING
   #if 1
@@ -124,12 +109,37 @@ uint8_t handle(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf)
 
   // Start Measurement
   trigger_high(); 
-  if (scmd){ 
-    net = forward_shuffled(net);
+  switch (scmd) {
+    case 0: // unprotected
+        net = forward(net);
+        break;
+
+    case 1: // shuffled only
+        net = forward_shuffled(net);
+        break;
+
+    case 2: // masked (per neuron)
+        net = forward_masked_neuron(net, MASK_SCALE);
+        break;
+
+    case 3: // masked (per multiply)
+        net = forward_masked_mul(net, MASK_SCALE);
+        break;
+
+    case 4: // shuffled + masked (per neuron)
+        net = forward_shuffled_masked_neuron(net, MASK_SCALE);
+        break;
+
+    case 5: // shuffled + masked (per multiply)
+        net = forward_shuffled_masked_mul(net, MASK_SCALE);
+        break;
+
+    default:
+        // fallback: 
+        net = forward(net);
+        break;
   }
-  else {
-    net = forward(net);
-  }
+
   // Stop Measurement
   trigger_low();
 
