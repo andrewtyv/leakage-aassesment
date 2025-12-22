@@ -8,6 +8,7 @@
 /*
  * When debugging locally compile using `gcc -o debug-app.exe main.c network.c debug-source.c -DDEBUGGING=1`
  */
+#define fixedvsfixed
 #define MASK_SCALE 0.3
 #include <stdint.h>
 #include <stdlib.h>
@@ -67,10 +68,24 @@ uint8_t handle(uint8_t cmd, uint8_t scmd, uint8_t len, uint8_t *buf)
   memcpy(&input_value, buf, sizeof(float));
   //net.layers[0].neurons[0].a = input_value;
   ///net.layers[0].neurons[1].a = input_value;
-  int n0 = net.layers[0].num_neurons;
+  int n0 = net.layers[0].num_neurons; 
+
+  //fixed vs fixed exp 
+  #ifdef fixedvsfixedexp 
+
+    for (int i =0; i<n0; i++){ 
+      net.layers[0].neurons[i].a = input_value; 
+    }
+
+  #endif
+
+  #ifndef fixedvsfixedexp 
+  
   for (int i = 0; i < n0; i++) {
       net.layers[0].neurons[i].a = (i == (0) ? input_value : 0.5f);
   }
+
+  #endif
   
 
 

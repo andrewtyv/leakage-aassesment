@@ -100,6 +100,7 @@ net_config_layer_weights[3] = (void*)net_config_weights.lay4_weights;
 }
 */
 
+
 #define NET_NUM_LAYERS 4
 #define NET_NUM_NEURONS ((int[]){7,5,4,3})
 
@@ -155,6 +156,10 @@ void init_weights() {
     net_config_layer_weights[3] = (void*)net_config_weights.lay3_weights;
 }
 
+
+
+
+
     // PREVIOUSLY USED WEIGHTS
     // float lay1_weights[5][7] = 
     // {
@@ -209,3 +214,53 @@ void init_weights() {
 //     float lay3_weights[3][4];
 // } net_config_weights;
 
+/*
+
+#include <stdio.h>
+
+#define NET_NUM_LAYERS 4
+#define NET_NUM_NEURONS ((int[]){3,2,2,2})
+
+struct {
+    float lay0_weights[3][1];  
+    float lay1_weights[2][3]; 
+    float lay2_weights[2][2];  
+    float lay3_weights[2][2]; 
+} net_config_weights;
+
+void *net_config_layer_weights[NET_NUM_LAYERS];
+
+void init_weights() {
+
+    float lay1_weights[2][3] = {
+        { 7.0f,  -7.0f,  6.0f },  
+        { 5.0f,   2.0f, -1.0f }   
+    };
+     float lay2_weights[2][2] = {
+        { 1.0f,  3.0f },   
+        { -4.0f, -8.0f }   
+    };
+    float lay3_weights[2][2] = {
+        { 1.0f,  2.0f },   
+        { 0.0f,  -6.0f }   
+    };
+
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 3; j++)
+            net_config_weights.lay1_weights[i][j] = lay1_weights[i][j];
+
+
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++)
+            net_config_weights.lay2_weights[i][j] = lay2_weights[i][j];
+
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++)
+            net_config_weights.lay3_weights[i][j] = lay3_weights[i][j];
+
+    net_config_layer_weights[0] = (void*)net_config_weights.lay0_weights;
+    net_config_layer_weights[1] = (void*)net_config_weights.lay1_weights;
+    net_config_layer_weights[2] = (void*)net_config_weights.lay2_weights;
+    net_config_layer_weights[3] = (void*)net_config_weights.lay3_weights;
+}
+    */
